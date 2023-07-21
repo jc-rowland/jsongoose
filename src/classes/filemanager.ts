@@ -28,11 +28,9 @@ export default class FileManager {
     }
   }
   async read(bytePosition: number, byteLength: number) {
-    const maxBytesToRead = byteLength;
-    const buffer = Buffer.alloc(maxBytesToRead);
-
-    fs.readSync(this.fileHandler, buffer, 0, maxBytesToRead, bytePosition);
-    console.log("Buffer output: ", buffer.toString());
+    const buffer = Buffer.alloc(byteLength);
+    
+    fs.readSync(this.fileHandler, buffer, 0, byteLength, bytePosition);
     return JSON.parse(buffer.toString());
   }
 
@@ -42,41 +40,36 @@ export default class FileManager {
     byteLength: ByteLength
   ) {
     const newDataLength = Buffer.byteLength(data);
-    const stats = fs.fstatSync(this.fileHandler);
-    const fileSize = stats.size;
-    // Shift the data if necessary
-    if (newDataLength !== byteLength) {
-      const shiftAmount = newDataLength - byteLength;
-
-      if (shiftAmount > 0) {
-        const tempBuffer = Buffer.allocUnsafe(shiftAmount);
-        fs.readSync(this.fileHandler, tempBuffer, 0, shiftAmount, bytePosition + byteLength);
-        fs.writeSync(
-          this.fileHandler,
-          tempBuffer,
-          0,
-          shiftAmount,
-          bytePosition + newDataLength
-        );
-      } else if (shiftAmount < 0) {
-        const tempBuffer = Buffer.allocUnsafe(-shiftAmount);
-        fs.readSync(this.fileHandler, tempBuffer, 0, -shiftAmount, bytePosition + byteLength);
-        fs.writeSync(
-          this.fileHandler,
-          tempBuffer,
-          0,
-          -shiftAmount,
-          bytePosition + newDataLength
-        );
-      }
-      // Overwrite the data in the specified byte range with the new JSON string
-      const dataBuffer = Buffer.from(data);
-      fs.writeSync(this.fileHandler, dataBuffer, 0, newDataLength, bytePosition);
-
-      // Truncate the file to remove any residual data beyond the desired byte range
-      fs.ftruncateSync(this.fileHandler, fileSize + shiftAmount);
-      return newDataLength;
+    const fileSize = this.stats.size;
+  
+    // Check if the bytePosition is within the file's range
+    if (bytePosition > fileSize) {
+      console.error("Byte position exceeds file size.");
+      return;
     }
+  
+    // Calculate the length of data to be shifted
+    const shiftAmount = newDataLength - byteLength;
+  
+    
+  
+    // Read the data after the insertion point that will be shifted
+    const shiftDataLength = fileSize - bytePosition - byteLength;
+    const shiftDataBuffer = Buffer.alloc(shiftDataLength);
+    fs.readSync(this.fileHandler, shiftDataBuffer, 0, shiftDataLength, bytePosition + byteLength);
+  
+    // Write the new data at the insertion point
+    const dataBuffer = Buffer.from(data);
+    fs.writeSync(this.fileHandler, dataBuffer, 0, newDataLength, bytePosition);
+  
+    // Write the shifted data after the new data
+    fs.writeSync(this.fileHandler, shiftDataBuffer, 0, shiftDataLength, bytePosition + newDataLength);
+  
+    // If data is shorter than byteLength, truncate the file to remove the remaining bytes
+  if (shiftAmount < 0) {
+    fs.ftruncateSync(this.fileHandler, fileSize + shiftAmount);
+  }
+    return newDataLength;
   }
 
   async write(
@@ -99,34 +92,28 @@ export default class FileManager {
     bytePosition: BytePosition,
     byteLength: ByteLength
   ) {
-    const fileSize = this.stats.size
-
-    if (bytePosition >= fileSize) {
-      console.error("Byte position exceeds file size.");
-      return;
+    const fileSize = this.stats.size;
+  
+  
+    // Calculate the actual number of bytes to delete
+    const bytesToDelete = Math.min(byteLength, fileSize - bytePosition);
+  
+    // Calculate the number of bytes to shift (remaining bytes after the deletion range)
+    const bytesToShift = fileSize - bytePosition - bytesToDelete;
+  
+    if (bytesToShift > 0) {
+      // Create a buffer to hold the data that will be shifted
+      const shiftBuffer = Buffer.alloc(bytesToShift);
+  
+      // Read the data after the deletion range
+      fs.readSync(this.fileHandler, shiftBuffer, 0, bytesToShift, bytePosition + bytesToDelete);
+  
+      // Write the shifted data to its new position
+      fs.writeSync(this.fileHandler, shiftBuffer, 0, bytesToShift, bytePosition);
     }
-
-    const maxBytesToRemove = byteLength;
-
-    const buffer = Buffer.alloc(maxBytesToRemove);
-
-    const bytesRead = fs.readSync(
-      this.fileHandler,
-      buffer,
-      0,
-      maxBytesToRemove,
-      bytePosition
-    );
-
-    // Shift remaining bytes to replace the removed portion
-    const shiftPosition = bytePosition + bytesRead;
-    const shiftLength = fileSize - shiftPosition;
-    const shiftBuffer = Buffer.alloc(shiftLength);
-
-    fs.readSync(this.fileHandler, shiftBuffer, 0, shiftLength, shiftPosition);
-    fs.writeSync(this.fileHandler, shiftBuffer, 0, shiftLength, bytePosition);
-
-    // Truncate the file to remove the remaining bytes
-    fs.ftruncateSync(this.fileHandler, fileSize - bytesRead);
+  
+    // Truncate the file to remove the deleted portion and the shifted data
+    fs.ftruncateSync(this.fileHandler, fileSize - bytesToDelete);
+    return bytesToShift
   }
 }

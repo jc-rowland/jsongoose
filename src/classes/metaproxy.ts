@@ -1,23 +1,23 @@
 import JSONDriver from "./jsondriver";
 export default class MetaProxy<T> {
   public index: number;
-  public bytePosition: number;
   public byteLength: number;
   private driver: JSONDriver<T>;
-  constructor(
-    [bytePosition, byteLength]: [number, number],
-    driver: JSONDriver<T>,
-    index: number
+  constructor(byteLength:number,
+    index: number,
+    driver: JSONDriver<T>
   ) {
-    this.bytePosition = bytePosition;
     this.byteLength = byteLength;
     this.driver = driver;
     this.index = index;
   }
 
+  get bytePosition():number{
+    return this.index === 0?1:this.driver.items[this.index-1].bytePosition+this.driver.items[this.index-1].byteLength+1
+  }
+
   async get() {
-    console.log('GET',this.bytePosition,
-    this.byteLength)
+    
     return this.driver.file.read(
       this.bytePosition,
       this.byteLength

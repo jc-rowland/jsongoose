@@ -6,12 +6,12 @@ import MetaProxy from "./metaproxy";
 export default class JSONDriver<T> {
   [index: number]: MetaProxy<T>;
   private metaPath: string;
-  public length: number;
   public file: FileManager;
+  public items: MetaProxy<T>[];
 
   constructor(fileDir: string, filename: string) {
+    
     let normalizedFilename = filename.replace(".json", "");
-    this.length = 0;
 
     const filePath = path.resolve(fileDir, normalizedFilename + ".jsondb");
     this.file = new FileManager(filePath);
@@ -20,22 +20,13 @@ export default class JSONDriver<T> {
     const meta = this.loadMeta();
     process.on("exit", () => this.saveMeta());
 
-    for (let index = 0; index < meta.items.length; index++) {
-      this[index] = new MetaProxy<T>(meta.items[index], this, index);
-      this.length++;
-    }
+    this.items = meta.items.map((byteLength:number,i:number)=>{
+      return new MetaProxy<T>(byteLength, i,this)
+    })
   }
 
   async init(){
     await this.file.init()
-  }
-
-  get items() {
-    let items = [];
-    for (let index = 0; index < this.length; index++) {
-      items.push([this[index].bytePosition, this[index].byteLength]);
-    }
-    return items;
   }
 
   private loadMeta() {
@@ -47,37 +38,35 @@ export default class JSONDriver<T> {
       this.metaPath,
       JSON.stringify({
         metaPath: this.metaPath,
-        items: this.items,
+        items: this.items.map((x)=>x.byteLength),
       })
     );
   }
 
   readMany() {}
 
-  async push(item: any) {
+  async push(item:any) {
     const newItem = JSON.stringify(item);
     const byteLength = Buffer.byteLength(newItem);
     const bytePosition =
-      this.length > 0
-        ? this[this.length - 1].bytePosition + this[this.length - 1].byteLength
+      this.items.length > 0
+        ? this.items[this.items.length - 1].bytePosition + this.items[this.items.length - 1].byteLength
         : 1;
 
     const fileDescriptor = this.file.fileHandler as number;
 
     // bytePosition is subtracted by 1 to account for the extra comma
-    this.file.write(fileDescriptor, `,${newItem}]`, 0, bytePosition - 1);
-
-    this[this.length] = new MetaProxy(
-      [bytePosition, byteLength],
-      this,
-      this.length
-    );
-    this.length++;
-    return this.length;
+    this.file.write(fileDescriptor, `,${newItem}]`, 0, bytePosition);
+    
+    return this.items.push(new MetaProxy(
+      byteLength,
+      this.items.length,
+      this
+    ))
   }
 
   async update(i: number, updateValue: T) {
-    const item = this[i];
+    const item = this.items[i];
     const { bytePosition, byteLength } = item;
 
     const newDataLength = await this.file.insert(
@@ -86,40 +75,30 @@ export default class JSONDriver<T> {
       byteLength
     ) as number;
 
-    const byteDelta = newDataLength - byteLength;
-    console.log('newDataLength',newDataLength)
-    this[i].byteLength = newDataLength
-    console.log('byteDelta',byteDelta)
-    for (let x = i+1; x < this.length; x++) {
-      //cascade byte position to the remaining items
-      console.log('this[x].bytePosition',this[x].bytePosition)
-      this[x].bytePosition += byteDelta;
-      console.log(this.items)
-      console.log('this[x].bytePosition += byteDelta',this[x].bytePosition)
-    }
+    this.items[i].byteLength = newDataLength
 
     
     return updateValue
   }
 
   async delete(i: number) {
-    const item = this[i];
-    const isLastItem = i === this.length - 1;
+    const item = this.items[i];
+    const isLastItem = i === this.items.length - 1;
+    const isFirstItem = i===0;
+    const isOnlyItem = isLastItem && isFirstItem
+
     if (!item) {
       return undefined;
     }
-    this.file.delete(
-      item.bytePosition,
-      item.byteLength + (isLastItem ? 0 : 1)
+    
+    await this.file.delete(
+      item.bytePosition + (isOnlyItem?0:isFirstItem?0:-1),
+      item.byteLength + ((isOnlyItem?0:isLastItem ? 0 : 1))
     );
-    const bytePositionAtDeletion = item.bytePosition;
 
-    this.items.splice(i, 1);
-    const byteDelta = 0 - item.byteLength;
-
-    for (let x = i; x < this.length; x++) {
-      //cascade byte position to the remaining items
-      this[x].byteLength = this[x].byteLength + byteDelta;
+    this.items.splice(i,1)
+    for (let x = 0; x < this.items.length; x++) {
+      this.items[x].index--;
     }
   }
 }
