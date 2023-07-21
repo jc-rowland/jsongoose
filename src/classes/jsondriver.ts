@@ -1,137 +1,125 @@
-import path from 'path';
-import fs from 'fs';
-import { readFile } from 'fs/promises';
+import path from "path";
+import fs from "fs";
+import FileManager from "./filemanager";
+import MetaProxy from "./metaproxy";
 
-interface Chunk {
-  data: Buffer;
-  bytesRead: number;
-}
-type BytePosition = number
-type ByteLength = number
+export default class JSONDriver<T> {
+  [index: number]: MetaProxy<T>;
+  private metaPath: string;
+  public length: number;
+  public file: FileManager;
 
-type JSONDBMeta_Item = [BytePosition,ByteLength]
+  constructor(fileDir: string, filename: string) {
+    let normalizedFilename = filename.replace(".json", "");
+    this.length = 0;
 
-type JSONDBMeta_File = {
-  length:number
-  items:JSONDBMeta_Item[]
-}
+    const filePath = path.resolve(fileDir, normalizedFilename + ".jsondb");
+    this.file = new FileManager(filePath);
 
-class JSONDBMeta {
-  private metaPath:string
-  public length:number
-  public items:JSONDBMeta_Item[]
+    this.metaPath = path.resolve(fileDir, normalizedFilename + ".jsondb.meta");
+    const meta = this.loadMeta();
+    process.on("exit", () => this.saveMeta());
 
-  constructor(metaPath:string){
-    this.metaPath = metaPath;
-    const meta    = JSON.parse(fs.readFileSync(metaPath).toString()) as JSONDBMeta_File
-    this.length   = meta.length
-    this.items    = meta.items
-  }
-  
-  write(){
-    return fs.writeFileSync(this.metaPath,JSON.stringify(this))
-  }
-
-  update(i:number,newByteSize:number){
-    const item = this.items[i]
-    const oldByteSize = item[1];
-    const byteDelta = newByteSize - oldByteSize
-    this.items[i][1] = newByteSize
-
-    for (let x = i+1; x < this.items.length; x++) {
-      //cascade byte position to the remaining items
-      this.items[x][0] = this.items[x][0]+byteDelta
+    for (let index = 0; index < meta.items.length; index++) {
+      this[index] = new MetaProxy<T>(meta.items[index], this, index);
+      this.length++;
     }
-    this.write()
   }
 
-  delete(i:number){
-    const item                   = this.items[i]
-    const oldByteSize            = item[1];
-    const bytePositionAtDeletion = item[0];
+  async init(){
+    await this.file.init()
+  }
+
+  get items() {
+    let items = [];
+    for (let index = 0; index < this.length; index++) {
+      items.push([this[index].bytePosition, this[index].byteLength]);
+    }
+    return items;
+  }
+
+  private loadMeta() {
+    return JSON.parse(fs.readFileSync(this.metaPath).toString());
+  }
+
+  private saveMeta() {
+    return fs.writeFileSync(
+      this.metaPath,
+      JSON.stringify({
+        metaPath: this.metaPath,
+        items: this.items,
+      })
+    );
+  }
+
+  readMany() {}
+
+  async push(item: any) {
+    const newItem = JSON.stringify(item);
+    const byteLength = Buffer.byteLength(newItem);
+    const bytePosition =
+      this.length > 0
+        ? this[this.length - 1].bytePosition + this[this.length - 1].byteLength
+        : 1;
+
+    const fileDescriptor = this.file.fileHandler as number;
+
+    // bytePosition is subtracted by 1 to account for the extra comma
+    this.file.write(fileDescriptor, `,${newItem}]`, 0, bytePosition - 1);
+
+    this[this.length] = new MetaProxy(
+      [bytePosition, byteLength],
+      this,
+      this.length
+    );
+    this.length++;
+    return this.length;
+  }
+
+  async update(i: number, updateValue: T) {
+    const item = this[i];
+    const { bytePosition, byteLength } = item;
+
+    const newDataLength = await this.file.insert(
+      JSON.stringify(updateValue),
+      bytePosition,
+      byteLength
+    ) as number;
+
+    const byteDelta = newDataLength - byteLength;
+    console.log('newDataLength',newDataLength)
+    this[i].byteLength = newDataLength
+    console.log('byteDelta',byteDelta)
+    for (let x = i+1; x < this.length; x++) {
+      //cascade byte position to the remaining items
+      console.log('this[x].bytePosition',this[x].bytePosition)
+      this[x].bytePosition += byteDelta;
+      console.log(this.items)
+      console.log('this[x].bytePosition += byteDelta',this[x].bytePosition)
+    }
+
+    
+    return updateValue
+  }
+
+  async delete(i: number) {
+    const item = this[i];
+    const isLastItem = i === this.length - 1;
+    if (!item) {
+      return undefined;
+    }
+    this.file.delete(
+      item.bytePosition,
+      item.byteLength + (isLastItem ? 0 : 1)
+    );
+    const bytePositionAtDeletion = item.bytePosition;
+
     this.items.splice(i, 1);
+    const byteDelta = 0 - item.byteLength;
 
-    let currentBytePosition = bytePositionAtDeletion
-    let nextBytePosition = bytePositionAtDeletion;
-    for (let x = i; x < this.items.length; x++) {
-      currentBytePosition = nextBytePosition
-      nextBytePosition = this.items[x][0]
+    for (let x = i; x < this.length; x++) {
       //cascade byte position to the remaining items
-      this.items[x][0] = currentBytePosition
+      this[x].byteLength = this[x].byteLength + byteDelta;
     }
-    this.write()
   }
-}
-
-export default class JSONDriver {
-  private fileDir:string
-  private filePath:string
-  private metaPath:string
-  private meta:JSONDBMeta
-
-  constructor(fileDir:string,filename:string){
-    let normalizedFilename = filename.replace('.json','')
-    this.fileDir  = fileDir
-    this.filePath = path.resolve(this.fileDir,normalizedFilename+'.jsondb')
-    this.metaPath = path.resolve(this.fileDir,normalizedFilename+'.jsondb.meta')
-    this.meta     = new JSONDBMeta(this.metaPath)
-  }
-
-  private read(bytePosition: number, byteLength: number): Chunk | null {
-  
-    const maxBytesToRead = byteLength
-    const buffer = Buffer.alloc(maxBytesToRead);
-  
-    const fileDescriptor = fs.openSync(this.filePath, 'r');
-    fs.readSync(fileDescriptor, buffer, 0, maxBytesToRead, bytePosition);
-    fs.closeSync(fileDescriptor);
-    console.log('Buffer output', buffer.toString())
-    return JSON.parse(buffer.toString());
-  }
-  private delete(bytePosition: number, byteLength: number) {
-    const fileStats = fs.statSync(this.filePath);
-    const fileSize = fileStats.size;
-  
-    if (bytePosition >= fileSize) {
-      console.error('Byte position exceeds file size.');
-      return;
-    }
-  
-    const maxBytesToRemove = byteLength
-  
-    const fileDescriptor = fs.openSync(this.filePath, 'r+');
-    const buffer = Buffer.alloc(maxBytesToRemove);
-  
-    const bytesRead = fs.readSync(fileDescriptor, buffer, 0, maxBytesToRemove, bytePosition);
-  
-    // Shift remaining bytes to replace the removed portion
-    const shiftPosition = bytePosition + bytesRead;
-    const shiftLength = fileSize - shiftPosition;
-    const shiftBuffer = Buffer.alloc(shiftLength);
-  
-    fs.readSync(fileDescriptor, shiftBuffer, 0, shiftLength, shiftPosition);
-    fs.writeSync(fileDescriptor, shiftBuffer, 0, shiftLength, bytePosition);
-  
-    // Truncate the file to remove the remaining bytes
-    fs.ftruncateSync(fileDescriptor, fileSize - bytesRead);
-  
-    fs.closeSync(fileDescriptor);
-  }
-
-  getIndex(i:number){
-    const item = this.meta.items[i]
-    if(!item){return undefined}
-    const [bytePosition,byteLength] = item
-    return this.read(bytePosition,byteLength)
-  }
-  deleteIndex(i:number){
-    const item = this.meta.items[i]
-    const isLastItem = i===this.meta.length-1
-    if(!item){return undefined}
-    const [bytePosition,byteLength] = item
-    this.delete(bytePosition,byteLength+(isLastItem?0:1))
-    this.meta.delete(i)
-  }
-
-
 }
