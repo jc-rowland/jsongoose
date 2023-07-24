@@ -5,31 +5,50 @@ type BytePosition = number;
 type ByteLength = number;
 
 export default class FileManager {
+  static FILE_TIMEOUT = 5000;
   filePath: string;
-  fileHandler: number;
-
+  private queueProcessingTimeout: NodeJS.Timeout | null;
+  private fd:number;
   constructor(filePath: string) {
     this.filePath = filePath;
-    this.fileHandler = 0;
-  }
-  async init() {
-    this.fileHandler = fs.openSync(this.filePath, "r+");
-    process.on("exit", () => this.cleanup());
+    this.queueProcessingTimeout = null;
+    this.fd = 0;
+    process.on("exit", this.cleanup);
   }
 
-  public get stats() {
+  private get fileHandler(){
+    if(this.queueProcessingTimeout){
+      clearTimeout(this.queueProcessingTimeout)
+      this.queueProcessingTimeout = null;
+    }
+      this.queueProcessingTimeout = setTimeout(
+        this.cleanup,FileManager.FILE_TIMEOUT
+      )
+    if(this.fd===0){
+      this.fd = fs.openSync(this.filePath, "r+")
+    }
+    return this.fd
+  }
+
+  private get stats() {
     return fs.fstatSync(this.fileHandler);
   }
 
   async cleanup() {
-    // Close the file when the process is about to exit
-    if (this.fileHandler !== null) {
+    process.removeListener('exit',this.cleanup)
+    if(this.fd!==0){
       fs.closeSync(this.fileHandler);
+      this.fd = 0
+    }
+    // Close the file when the process is about to exit
+    if (this.queueProcessingTimeout) {
+      clearTimeout(this.queueProcessingTimeout)
+      this.queueProcessingTimeout = null;
     }
   }
+  
   async read(bytePosition: number, byteLength: number) {
     const buffer = Buffer.alloc(byteLength);
-    
     fs.readSync(this.fileHandler, buffer, 0, byteLength, bytePosition);
     return JSON.parse(buffer.toString());
   }
@@ -51,8 +70,6 @@ export default class FileManager {
     // Calculate the length of data to be shifted
     const shiftAmount = newDataLength - byteLength;
   
-    
-  
     // Read the data after the insertion point that will be shifted
     const shiftDataLength = fileSize - bytePosition - byteLength;
     const shiftDataBuffer = Buffer.alloc(shiftDataLength);
@@ -73,14 +90,13 @@ export default class FileManager {
   }
 
   async write(
-    fd: number,
     data: string,
     offset?: number | null | undefined,
     position?: number | null | undefined
   ) {
     const dataBuffer = Buffer.from(data);
     return fs.writeSync(
-      fd,
+      this.fileHandler,
       dataBuffer,
       offset,
       dataBuffer.byteLength,

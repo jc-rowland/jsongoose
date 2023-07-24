@@ -15,7 +15,6 @@ export default class JSONDriver<T> {
 
     const filePath = path.resolve(fileDir, normalizedFilename + ".jsondb");
     this.file = new FileManager(filePath);
-
     this.metaPath = path.resolve(fileDir, normalizedFilename + ".jsondb.meta");
     const meta = this.loadMeta();
     process.on("exit", () => this.saveMeta());
@@ -23,10 +22,6 @@ export default class JSONDriver<T> {
     this.items = meta.items.map((byteLength:number,i:number)=>{
       return new MetaProxy<T>(byteLength, i,this)
     })
-  }
-
-  async init(){
-    await this.file.init()
   }
 
   private loadMeta() {
@@ -53,16 +48,51 @@ export default class JSONDriver<T> {
         ? this.items[this.items.length - 1].bytePosition + this.items[this.items.length - 1].byteLength
         : 1;
 
-    const fileDescriptor = this.file.fileHandler as number;
-
     // bytePosition is subtracted by 1 to account for the extra comma
-    this.file.write(fileDescriptor, `,${newItem}]`, 0, bytePosition);
+    await this.file.write(`,${newItem}]`, 0, bytePosition);
     
     return this.items.push(new MetaProxy(
       byteLength,
       this.items.length,
       this
     ))
+  }
+
+  async pushMany(items:any[]) {
+    
+    return new Promise((resolve,reject)=>{
+
+      // Creating a write stream.
+      const writeStream = fs.createWriteStream(this.file.filePath, {
+        flags: 'r+', // open the file for reading and writing
+        start: this.items.length > 0
+                ? this.items[this.items.length - 1].bytePosition + this.items[this.items.length - 1].byteLength
+                : 1 // setting the start position
+      });
+
+      writeStream.on('error', reject);
+      writeStream.on('finish', resolve);
+    
+      for (let i = 0; i < items.length; i++) {
+        const newItem = JSON.stringify(items[i]);
+        const byteLength = Buffer.byteLength(newItem);
+        
+    
+        // Writing to the stream
+        writeStream.write(`,${newItem}`);
+    
+        this.items.push(new MetaProxy(
+          byteLength,
+          this.items.length,
+          this
+        ));
+      }
+      
+      // Make sure to end the stream when you're done writing
+      writeStream.end("]");
+    })
+
+  
   }
 
   async update(i: number, updateValue: T) {

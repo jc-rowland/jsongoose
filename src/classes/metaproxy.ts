@@ -12,8 +12,17 @@ export default class MetaProxy<T> {
     this.index = index;
   }
 
-  get bytePosition():number{
-    return this.index === 0?1:this.driver.items[this.index-1].bytePosition+this.driver.items[this.index-1].byteLength+1
+  get bytePosition(): number {
+    if (this.index === 0) {
+      return 1;
+    }
+  
+    let position = 1;
+    for (let i = 0; i < this.index; i++) {
+      position += this.driver.items[i].byteLength + 1;
+    }
+  
+    return position;
   }
 
   async get() {
