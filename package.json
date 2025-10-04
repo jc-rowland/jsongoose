@@ -1,0 +1,51 @@
+{
+  "name": "jsongoose",
+  "version": "1.0.0",
+  "description": "A JSON-based noSQLdb based on Mongo/Mongoose",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "type": "module",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "start": "ts-node src/index.ts",
+    "build": "tsup",
+    "pretest": "tsup",
+    "test": "mocha --require ts-node/register 'test/**/*.spec.ts'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jc-rowland/jsongoose.git"
+  },
+  "author": "Justin Rowland",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jc-rowland/jsongoose/issues"
+  },
+  "homepage": "https://github.com/jc-rowland/jsongoose#readme",
+  "devDependencies": {
+    "@types/chai": "^4.3.5",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "^20.4.2",
+    "chai": "^4.3.7",
+    "mocha": "^10.2.0",
+    "ts-node": "^10.9.1",
+    "tsconfig-paths": "^4.2.0",
+    "tsup": "^7.1.0",
+    "typescript": "^5.1.6"
+  },
+  "dependencies": {
+    "fast-json": "^3.0.0"
+  },
+  "tsup": {
+    "entry": ["src/index.ts"],
+    "splitting": false,
+    "sourcemap": true,
+    "clean": true
+  }
+}
