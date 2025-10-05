@@ -16,7 +16,9 @@ export default class JSONDriver<T> {
     const filePath = path.resolve(fileDir, normalizedFilename + ".jsondb");
     this.file = new FileManager(filePath);
     this.metaPath = path.resolve(fileDir, normalizedFilename + ".jsondb.meta");
-    const meta = this.loadMeta();
+
+    // TODO: Add createIfMissing to config options
+    const meta = this.loadMeta(true);
     process.on("exit", () => this.saveMeta());
 
     this.items = meta.items.map((byteLength:number,i:number)=>{
@@ -24,8 +26,16 @@ export default class JSONDriver<T> {
     })
   }
 
-  private loadMeta() {
-    return JSON.parse(fs.readFileSync(this.metaPath).toString());
+  private loadMeta(createIfMissing:boolean=false) {
+    try {
+      return JSON.parse(fs.readFileSync(this.metaPath).toString());
+    } catch (error) {
+      if(createIfMissing){
+        this.saveMeta()
+        return this.loadMeta(false)
+      }
+      throw new Error(`Metadata Path [${this.metaPath}] Not Found`)
+    }
   }
 
   private saveMeta() {
@@ -33,7 +43,7 @@ export default class JSONDriver<T> {
       this.metaPath,
       JSON.stringify({
         metaPath: this.metaPath,
-        items: this.items.map((x)=>x.byteLength),
+        items: this.items?this.items.map((x)=>x.byteLength):[]
       })
     );
   }
@@ -43,9 +53,10 @@ export default class JSONDriver<T> {
   async push(item:any) {
     const newItem = JSON.stringify(item);
     const byteLength = Buffer.byteLength(newItem);
+    const itemIndex = this.items.length - 1
     const bytePosition =
       this.items.length > 0
-        ? this.items[this.items.length - 1].bytePosition + this.items[this.items.length - 1].byteLength
+        ? this.items[itemIndex].bytePosition + this.items[itemIndex].byteLength
         : 1;
 
     // bytePosition is subtracted by 1 to account for the extra comma

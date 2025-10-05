@@ -1,10 +1,9 @@
 {
   "extension": ["ts"],
-  "require": "ts-node/register",
   "spec": "test/**/*.spec.ts",
+  "require": "tsx/cjs",
   "node-option": [
-    "experimental-specifier-resolution=node",
-    "loader=ts-node/esm"
-],
-"timeout":100000
+    "import=tsx/esm"
+  ],
+  "timeout":5000
 }

@@ -1,3 +1,8 @@
+/**
+ * This class is the disk maangement system. It directly modifies file bytes, attempting to avoid
+ * loading the entire file into memory.
+ */
+
 import fs from "fs";
 import { promises as fsPromises, Stats } from 'fs';
 

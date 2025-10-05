@@ -38,6 +38,7 @@ export default class MetaProxy<T> {
   }
 
   async delete() {
+    console.log('delete')
     this.driver.delete(this.index);
   }
 }

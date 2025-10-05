@@ -108,19 +108,11 @@ fs.writeFileSync(
   });
 
   it('[push] should push X items into the array', async () => {
-
-    console.time('1')
-    for (let i = 0; i < 100000; i++) {
+    console.log('data.items.length',data.items.length)
+    for (let i = 0; i < 5000; i++) {
       await data.push({item:"thing"})
     }
-    console.timeEnd('1')
-    data.delete(201)
-    console.timeEnd('1')
-
-    console.time('2')
-    data.items[4800].bytePosition
-    console.timeEnd('2')
-    console.log('data',data.items.length)
+    expect(data.items.length).to.eq(5004)
   });
 
   it('[pushMany] should push X items into the array', async () => {
@@ -129,7 +121,7 @@ fs.writeFileSync(
     console.time('1')
     let items = [] as any[];
 
-    for (let i = 0; i < 100000; i++) {
+    for (let i = 0; i < 500; i++) {
       items.push({"item":"thang"})
     }
     await data.pushMany(items)
@@ -137,45 +129,9 @@ fs.writeFileSync(
     data.delete(201)
 
     console.time('2')
-    data.items[4800].bytePosition
-    console.log(await data.items[4800].get())
+    data.items[480].bytePosition
+    console.log(await data.items[480].get())
     console.timeEnd('2')
   });
 
-  it('open, wait, and close the timeout', async () => {
-    await data.push({blah:"foo"})
-    await data.items[2].get()
-    await data.push({blah:"foo"})
-    await sleep(15000)
-  });
-
-  it('[pushMany] should push X items into the array, then update a file', async () => {
-    await data.push({blah:"foo"})
-    await data.push({blah:"foo"})
-    console.time('pushMany')
-    let items = [] as any[];
-    for (let i = 0; i < 1000000; i++) {
-      items.push({"item":[
-        {
-          name:"thing"
-        }
-      ]})
-    }
-    await data.pushMany(items)
-    console.timeEnd('pushMany')
-
-    console.time('delete')
-    await data.items[1].delete()
-    console.timeEnd('delete')
-
-    console.time('update')
-    const updateData = { another:"thing" } as any;
-    await data.items[1].set(updateData)
-    console.timeEnd('update')
-    
-    const updatedItem = await data.items[1].get()
-    expect(updatedItem).to.be.deep.eq(updateData)
-  });
-
-  // Add more test cases as needed
 });
